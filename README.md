@@ -1,38 +1,67 @@
 # claude-code-hooks
 
 ## About
-claude-code-hooks is a General Python project.
+
+A Claude Code `PreToolUse` hook that blocks accidental access to sensitive files (`.env`, private keys, credentials) before tool calls execute.
+
+When Claude Code runs a tool, it pipes the tool name and input as JSON to this script via stdin. The script evaluates the request and either allows it (exit 0) or blocks it with an error message (exit 2).
+
+## How It Works
+
+**For Read / Edit / Write tools** — blocked if the target file path matches any sensitive pattern.
+
+**For Bash** — blocked if the command is a read-class operation (`cat`, `grep`, `head`, `tail`, `less`, `more`, `awk`, `sed`) targeting a `.env` file. `.env.example` is explicitly allowed.
+
+**Sensitive file patterns blocked:**
+- `.env`, `.env.*`
+- `*.pem`, `*.key`, `*.p12`, `*.pfx`
+- `id_rsa`, `id_ed25519`, `*.pub`
+- `credentials`, `credentials.json`
+- `secrets.json`, `secrets.yaml`
+- `*.token`
 
 ## Project Structure
+
 ```
 claude-code-hooks/
-├── src/          # Source code
-├── outcomes/     # Output files
-├── .env          # Environment variables (not committed)
-├── .env.example  # Environment variable template
-├── requirements.txt
+├── src/
+│   └── sensitive_file_guard.py   # Hook implementation
+├── outcomes/                      # Output directory
 └── README.md
 ```
 
-## Setup
-1. Create and activate virtual environment:
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
+## Installing the Hook
+
+Add the following to your Claude Code settings (`~/.claude/settings.json`):
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 /path/to/claude-code-hooks/src/sensitive_file_guard.py"
+          }
+        ]
+      }
+    ]
+  }
+}
 ```
 
-2. Install dependencies:
-```bash
-pip install -r requirements.txt
-```
+Replace `/path/to/claude-code-hooks` with the actual path to this repository.
 
-3. Configure environment variables:
-```bash
-cp .env.example .env
-# Edit .env with your actual values
-```
+## Testing the Hook Manually
 
-## Usage
 ```bash
-PYTHONPATH=src python3 src/main.py
+# Should be BLOCKED
+echo '{"tool_name": "Read", "tool_input": {"file_path": "/project/.env"}}' \
+  | python3 src/sensitive_file_guard.py
+
+# Should be ALLOWED
+echo '{"tool_name": "Read", "tool_input": {"file_path": "/project/.env.example"}}' \
+  | python3 src/sensitive_file_guard.py
 ```
