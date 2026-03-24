@@ -1,0 +1,31 @@
+
+# Virtual Environment
+venv/
+.venv*/
+
+# Python cache files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Environment variables
+.env
+
+# Logs
+*.log
+
+# SQLite database files
+*.db
+*.db-shm
+*.db-wal
+
+# Mac System files
+.DS_Store
+
+# Output files
+output/
+outcomes/
+
+# Node
+node_modules/
