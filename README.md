@@ -27,7 +27,7 @@ A blocklist approach was chosen over an allowlist for developer ergonomics. An a
 For the `Bash` tool, the hook applies a lenient matching strategy: it only blocks commands that are explicit read operations (`cat`, `grep`, `head`, `tail`, `less`, `more`, `awk`, `sed`) referencing `.env` files. Strict command string matching produces too many false positives in a solo development context. The tradeoff is accepted consciously.
 
 **`.env.example` explicitly excluded**
-`.env.example` is a safe, committed template file. Blocking it would interfere with legitimate scaffolding workflows. The hook uses regex suffix extraction to distinguish `.env.example` from `.env`, `.env.local`, `.env.prod`, and other live credential variants.
+`.env.example` is a safe, committed template file. Blocking it would interfere with legitimate scaffolding workflows. The hook checks the exact filename (for file path tools) and splits bash commands into tokens to inspect each argument's basename — distinguishing `.env.example` from `.env`, `.env.local`, `.env.prod`, and other live credential variants.
 
 **Exit code 2 for structured feedback**
 Claude Code's hook contract specifies that exit code 2 blocks the tool call and forwards `stderr` back to the model as feedback. This allows Claude Code to understand *why* it was blocked and suggest alternatives — rather than failing silently or confusing the user.
@@ -57,18 +57,18 @@ Claude Code (PreToolUse event)
         │
         ▼
     should_block()          # routes to correct matching logic by tool_name
-        │
+        │                   # returns (blocked: bool, target: str)
         ├── Read / Edit / Write → is_sensitive_file(file_path)
         │                         fnmatch against blocklist patterns
         │
         └── Bash            → is_sensitive_bash_command(command)
-                              read-op detection + .env regex matching
+                              read-op detection + token-based .env matching
         │
         ▼
-  handle_decision()         # exit 2 (block) or exit 0 (allow)
+      main()                # exit 2 (block + stderr feedback) or exit 0 (allow)
 ```
 
-Each unit is independently testable. Decision logic (`should_block`) is fully decoupled from side effects (`handle_decision`), following the principle that functions which make decisions should not also produce side effects.
+Each unit is independently testable. `should_block` returns a `(blocked, target)` tuple, keeping decision logic separate from the side effect of exiting — which lives entirely in `main()`.
 
 ### Installation
 
@@ -105,6 +105,14 @@ cp src/sensitive_file_guard.py ~/.claude/hooks/sensitive_file_guard.py
 ```
 /hooks
 ```
+
+### Running Tests
+
+```bash
+python3 -m unittest discover -s tests -v
+```
+
+The test suite covers all three core functions (`is_sensitive_file`, `is_sensitive_bash_command`, `should_block`) across 25 cases including edge cases like `.envrc`, `.env.example`, paths, and missing input fields.
 
 ### Extending the Blocklist
 
