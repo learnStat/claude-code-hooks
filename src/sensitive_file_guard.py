@@ -2,6 +2,7 @@ import fnmatch
 import json
 import os
 import sys
+import re
 
 
 # ---------------------------------------------------------------------------
@@ -31,6 +32,15 @@ SENSITIVE_PATTERNS = [
 
 BASH_READ_COMMANDS = {"cat", "grep", "head", "tail", "less", "more", "awk", "sed"}
 
+# ---------------------------------------------------------------------------
+# Env-dump detection: variable name fragments that indicate secrets
+# ---------------------------------------------------------------------------
+
+SECRET_VAR_FRAGMENTS = [
+    "ANTHROPIC", "API_KEY", "SECRET", "PASSWORD", "TOKEN",
+    "PRIVATE_KEY", "AWS_", "OPENAI", "GITHUB_TOKEN", "DATABASE_URL",
+]
+
 
 def is_sensitive_file(file_path: str) -> bool:
     """Return True if file_path matches any sensitive pattern."""
@@ -39,11 +49,51 @@ def is_sensitive_file(file_path: str) -> bool:
         return False
     return any(fnmatch.fnmatch(name, p) for p in SENSITIVE_PATTERNS)
 
-def is_sensitive_bash_command(command: str)-> bool:
+def is_env_dump_command(command: str) -> bool:
     """
-    Return True if a bash command is a read-class operation
-    referencing a .env file (but not .env.example).
+    Block bare env/printenv/export and env piped to other commands.
+    Allows env VAR=value cmd (legitimate subprocess use) and export VAR=value.
     """
+    parts = command.strip().split()
+    if not parts:
+        return False
+
+    cmd, args = parts[0], parts[1:]
+
+    if cmd in ("printenv", "export"):
+        return len(args) == 0
+
+    if cmd == "env":
+        if not args:
+            return True
+        # env | grep ... — piped dump
+        if args[0] == "|":
+            return True
+        # env VAR=value some_command — find first non-assignment token
+        for arg in args:
+            if "=" not in arg:
+                return False  # found a real command to run, legitimate use
+        return True  # only VAR=value args, no command — treat as dump
+
+    return False
+
+
+def references_secret_var(command: str) -> bool:
+    """Block commands that explicitly name a known secret variable fragment."""
+    upper_cmd = command.upper()
+    return any(fragment in upper_cmd for fragment in SECRET_VAR_FRAGMENTS)
+
+
+def is_sensitive_bash_command(command: str) -> bool:
+    """
+    Return True if a bash command should be blocked:
+    - env-dump commands (env, printenv, export bare or piped)
+    - commands referencing known secret variable names
+    - read-class commands targeting .env files
+    """
+    if is_env_dump_command(command) or references_secret_var(command):
+        return True
+
     parts = command.strip().split()
     if not parts or parts[0] not in BASH_READ_COMMANDS:
         return False

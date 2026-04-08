@@ -3,7 +3,7 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 import unittest
-from sensitive_file_guard import is_sensitive_file, is_sensitive_bash_command, should_block
+from sensitive_file_guard import is_sensitive_file, is_sensitive_bash_command, is_env_dump_command, references_secret_var, should_block
 
 
 class TestIsSensitiveFile(unittest.TestCase):
@@ -61,6 +61,42 @@ class TestIsSensitiveBashCommand(unittest.TestCase):
 
     def test_allows_empty_command(self):
         self.assertFalse(is_sensitive_bash_command(""))
+
+
+class TestIsEnvDumpCommand(unittest.TestCase):
+
+    def test_blocks_env_piped_to_grep(self):
+        self.assertTrue(is_env_dump_command("env | grep ANTHROPIC"))
+
+    def test_blocks_bare_env(self):
+        self.assertTrue(is_env_dump_command("env"))
+
+    def test_blocks_bare_printenv(self):
+        self.assertTrue(is_env_dump_command("printenv"))
+
+    def test_blocks_bare_export(self):
+        self.assertTrue(is_env_dump_command("export"))
+
+    def test_allows_env_with_var_assignment_and_command(self):
+        self.assertFalse(is_env_dump_command("env VAR=value some_command"))
+
+    def test_allows_export_with_assignment(self):
+        self.assertFalse(is_env_dump_command("export MY_VAR=hello"))
+
+
+class TestReferencesSecretVar(unittest.TestCase):
+
+    def test_blocks_echo_secret_var(self):
+        self.assertTrue(references_secret_var("echo $ANTHROPIC_API_KEY"))
+
+    def test_blocks_printenv_secret_var(self):
+        self.assertTrue(references_secret_var("printenv ANTHROPIC_API_KEY"))
+
+    def test_allows_safe_command(self):
+        self.assertFalse(references_secret_var("env VAR=value some_command"))
+
+    def test_allows_export_assignment(self):
+        self.assertFalse(references_secret_var("export MY_VAR=hello"))
 
 
 class TestShouldBlock(unittest.TestCase):
